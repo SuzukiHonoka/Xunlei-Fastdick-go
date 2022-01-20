@@ -9,7 +9,7 @@ A **Xunlei-Fastdick** client written in golang, made by starx with love.
 
 ## Getting Started
 
-You need to create a file call **config.json** in your running directory.  
+You need to create a file called **config.json** in your running directory.  
 The following are the configuration example.
 
 ```json
