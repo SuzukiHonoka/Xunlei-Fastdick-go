@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -47,21 +48,25 @@ func (x *Request) Get(url string) ([]byte, error) {
 func (x *Request) Do(req *http.Request) ([]byte, error) {
 	//fmt.Printf("%s -> %s\n", req.Method, req.URL.String())
 	setHeaders(req, headers)
-	resp, err := x.Client.Do(req)
-	if err != nil {
-		return nil, err
+	for count := 0; count < 3; count++ {
+		resp, err := x.Client.Do(req)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				continue
+			}
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, errors.New("http code error " + strconv.Itoa(resp.StatusCode))
+		}
+		b, err := io.ReadAll(resp.Body)
+		ForceClose(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return b, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New("http code error " + strconv.Itoa(resp.StatusCode))
-	}
-
-	defer ForceClose(resp.Body)
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return b, nil
+	return nil, context.DeadlineExceeded
 }
 
 func setHeaders(req *http.Request, headers map[string]string) {
