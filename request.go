@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"strconv"
 	"time"
 )
@@ -51,7 +52,7 @@ func (x *Request) Do(req *http.Request) ([]byte, error) {
 	for count := 0; count < 3; count++ {
 		resp, err := x.Client.Do(req)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
+			if os.IsTimeout(err) {
 				continue
 			}
 			return nil, err
