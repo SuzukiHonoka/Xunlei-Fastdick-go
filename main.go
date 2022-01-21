@@ -29,8 +29,8 @@ func main() {
 	// auto renew sessions
 	api.AutoRenewal()
 	// upgrade the bandwidth
-	api.SpeedUp()
-	// keep upgraded
+	api.AutoSpeedUp()
+	// keep upgraded session
 	api.AutoKeepAlive()
 	// block main
 	select {}

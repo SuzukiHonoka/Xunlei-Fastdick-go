@@ -241,23 +241,33 @@ func (x *API) SpeedUp() {
 			log.Println("Upgraded⭐")
 			break
 		}
+		// sleep 2 min for prevent flood detection
 		log.Println("speedup failed, retry after 2min")
 		time.Sleep(2 * time.Minute)
 	}
-	// sleep 2 min for prevent flood detection
-	time.Sleep(2 * time.Minute)
 }
 
-// AutoKeepAlive automatic speedup the network, interval: 1h
-func (x *API) AutoKeepAlive() {
+// AutoSpeedUp automatic speedup the network, interval: 2h
+func (x *API) AutoSpeedUp() {
 	go func() {
 		for {
-			x.KeepAlive()
-			time.Sleep(1 * time.Hour)
+			x.SpeedUp()
+			time.Sleep(2 * time.Hour)
 		}
 	}()
 }
 
+// AutoKeepAlive automatic keep the speedup session, interval: 1h
+func (x *API) AutoKeepAlive() {
+	go func() {
+		for {
+			time.Sleep(3 * time.Hour)
+			x.KeepAlive()
+		}
+	}()
+}
+
+// Recover the bandwidth
 func (x *API) Recover() {
 	now := time.Now()
 	_, err := x.Request.Get(fmt.Sprintf(ApiRecover, x.PortalURL, x.Account.Session.PeerID, strconv.FormatInt(now.UnixMilli(), 10),
