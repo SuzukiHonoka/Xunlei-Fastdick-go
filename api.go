@@ -12,7 +12,8 @@ import (
 
 // level1 API
 const (
-	ApiLogin = "https://mobile-login.xunlei.com/login"
+	ApiLogin    = "https://mobile-login.xunlei.com/login"
+	ApiLoginKey = "https://mobile-login.xunlei.com/loginkey"
 	// ApiRenewal get, seq=uid, limitDate=exp,time_and=timestamp
 	ApiRenewal  = "http://api.ext.swjsq.vip.xunlei.com/renewal?peerid=%s&sequence=%s&user_type=2&os=android-11.30RedmiK20Pro&limitdate=%s&time_and=%s&client_type=android-swjsq-2.9.3.2&sessionid=%s&client_version=androidswjsq-2.9.3.2&userid=%s&chanel=umeng-xunlei"
 	ApiUserInfo = "https://mobile-login.xunlei.com/getuserinfo"
@@ -58,7 +59,7 @@ type Session struct {
 func init() {
 	// get mac address for device id
 	var err error
-	MacAddr, err = getMacAddr()
+	MacAddr, err = GetMacAddr()
 	CheckError(err)
 	MacAddr = strings.ToUpper(strings.ReplaceAll(MacAddr, ":", ""))
 }
@@ -73,35 +74,70 @@ func NewAPI(account *Account) *API {
 }
 
 // GeneratePayload generate the payload from session
-func (x *API) GeneratePayload(isLogin bool) []byte {
-	payload := CommonPayload
+func (x *API) GeneratePayload(isLogin bool, isLoginKey bool) []byte {
+	payload := make(map[string]string)
+	// copy from common payload
+	for k, v := range CommonPayload {
+		payload[k] = v
+	}
+	// common
 	payload["peerID"] = x.Account.Session.PeerID
 	payload["devicesign"] = x.Account.Session.DeviceSign
-	payload["userID"] = x.Account.Session.UserID
-	payload["sessionID"] = x.Account.Session.ID
+	// login
 	if isLogin {
-		payload["loginKey"] = x.Account.Session.LoginKey
-		payload["userName"] = strconv.FormatUint(x.Account.PhoneNumber, 10)
 		payload["passWord"] = x.Account.Password
 		payload["verifyKey"] = ""
 		payload["verifyCode"] = ""
 		payload["isMd5Pwd"] = "0"
 	}
+	// login-key
+	if isLoginKey {
+		payload["loginKey"] = x.Account.Session.LoginKey
+		payload["userName"] = x.Account.Session.UserID // this is really shitty
+	} else {
+		payload["sessionID"] = x.Account.Session.ID
+		payload["userID"] = x.Account.Session.UserID
+		payload["userName"] = strconv.FormatUint(x.Account.PhoneNumber, 10) // diff to login-key
+	}
 	return ForceMarshal(payload)
+}
+
+// UpdateSession key value
+func (x *API) UpdateSession(id string, loginKey string) {
+	x.Account.Session.LoginKey = loginKey
+	x.Account.Session.ID = id
+}
+
+// FetchSessionUpdateAndSave fetch the value from api and set the session
+func (x *API) FetchSessionUpdateAndSave(data map[string]interface{}) {
+	// update and save session
+	sID := data["sessionID"].(string)
+	sLoginKey := data["loginKey"].(string)
+	x.UpdateSession(sID, sLoginKey)
+	x.SaveSession()
+}
+
+// SaveSession save entire Account which contains Session to the config file
+func (x *API) SaveSession() {
+	err := os.WriteFile(ConfigPath, ForceMarshal(x.Account), os.ModePerm)
+	CheckError(err)
 }
 
 // Login generates the payload and log in
 func (x *API) Login() {
 	log.Println("logging you in..")
+	// clean the old session
 	x.Account.Session = &Session{}
 	// generate fake device id and sign
-	peerID := MacAddr + "004V"
+	peerID := MacAddr + "004V" // first ethernet port mac address
 	fakeDeviceId := GetStringMd5Hex(MacAddr)
 	fakeDeviceSign := GetStringSha1Hex(fakeDeviceId + "com.xunlei.vip.swjsq68c7f21687eed3cdb400ca11fc2263c998")
 	_sign := "div101." + fakeDeviceId + GetStringMd5Hex(fakeDeviceSign)
+	// loads
 	x.Account.Session.DeviceSign = _sign
 	x.Account.Session.PeerID = peerID
-	payload := x.GeneratePayload(true)
+	// api interaction
+	payload := x.GeneratePayload(true, false)
 	b, err := x.Request.Post(ApiLogin, payload)
 	CheckError(err)
 	// parse data
@@ -110,22 +146,42 @@ func (x *API) Login() {
 	errorCode, _ := strconv.Atoi(data["errorCode"].(string))
 	switch errorCode {
 	case 0:
+		// set userID
+		x.Account.Session.UserID = data["userID"].(string)
 		log.Println("login success")
 	case 6:
-		log.Println("MFA required!! recaptcha image downloaded(./t.png)")
+		log.Println("MFA required!!")
 		b, err := x.Request.Get(ApiCaptcha)
 		CheckError(err)
-		_ = os.WriteFile("t.png", b, os.ModePerm)
+		err = os.WriteFile("t.png", b, os.ModePerm)
+		CheckError(err)
+		log.Println("recaptcha image downloaded(./t.png)")
 		Question("enter the recaptcha:")
 		panic("not implemented")
 		// todo: restart login with additional header
 	default:
 		panic("login failed")
 	}
-	x.Account.Session.ID = data["sessionID"].(string)
-	x.Account.Session.LoginKey = data["loginKey"].(string)
-	x.Account.Session.UserID = data["userID"].(string)
-	_ = os.WriteFile(ConfigPath, ForceMarshal(x.Account), os.ModePerm)
+	// update and save session
+	x.FetchSessionUpdateAndSave(data)
+}
+
+// LoginKey generates the payload and log in with session
+func (x *API) LoginKey() {
+	log.Println("logging you in with session")
+	payload := x.GeneratePayload(false, true)
+	b, err := x.Request.Post(ApiLoginKey, payload)
+	CheckError(err)
+	//parse data
+	var data map[string]interface{}
+	_ = json.Unmarshal(b, &data)
+	errorCode, _ := strconv.Atoi(data["errorCode"].(string))
+	if errorCode != 0 {
+		log.Println("reload session failed, attempting to fresh login")
+		x.Login()
+		return
+	}
+	x.FetchSessionUpdateAndSave(data)
 }
 
 // GetPortal gets the network info and speedup server
@@ -164,22 +220,13 @@ func (x *API) PromptSpeedupCapability() {
 
 // CheckAccountCapability check the account vip info
 func (x *API) CheckAccountCapability() {
-	// session invalid
-	if x.Account.Session == nil {
-		x.Login()
-		x.CheckAccountCapability()
-		return
-	}
-	payload := x.GeneratePayload(true)
+	payload := x.GeneratePayload(true, false)
 	b, err := x.Request.Post(ApiUserInfo, payload)
 	CheckError(err)
 	data := JsonToMap(b)
 	vipList := data["vipList"]
-	// session invalid
 	if vipList == nil {
-		x.Login()
-		x.CheckAccountCapability()
-		return
+		panic("none of vip found")
 	}
 	for _, vip := range vipList.([]interface{}) {
 		t := vip.(map[string]interface{})
@@ -200,61 +247,78 @@ func (x *API) CheckAccountCapability() {
 }
 
 // Renewal keep session valid
-func (x *API) Renewal() {
+func (x *API) Renewal() bool {
 	now := time.Now()
-	_, err := x.Request.Get(fmt.Sprintf(ApiRenewal, x.Account.Session.PeerID, x.Account.Session.UserID,
+	b, err := x.Request.Get(fmt.Sprintf(ApiRenewal, x.Account.Session.PeerID, x.Account.Session.UserID,
 		x.Account.Session.VipExp, strconv.FormatInt(now.UnixMilli(), 10), x.Account.Session.ID, x.Account.Session.UserID))
 	CheckError(err)
+	data := JsonToMap(b)
+	return data["errno"].(float64) == 0
 }
 
 // AutoRenewal automatic renews the session, interval: 5min
 func (x *API) AutoRenewal() {
 	go func() {
 		for {
-			x.Renewal()
+			x.RetryLoginAndDo(2, x.Renewal, "upgrade")
 			time.Sleep(5 * time.Minute)
 		}
 	}()
 }
 
 // KeepAlive the speedup
-func (x *API) KeepAlive() {
+func (x *API) KeepAlive() bool {
 	now := time.Now()
 	b, err := x.Request.Get(fmt.Sprintf(ApiKeepAlive, x.PortalURL, x.Account.Session.PeerID, strconv.FormatInt(now.UnixMilli(), 10),
 		x.Account.Session.UserID, x.Account.Session.ID, x.DialAccount))
 	CheckError(err)
 	data := JsonToMap(b)
-	if data["errno"].(float64) != 0 {
-		panic("keep upgraded failed")
-	}
+	return data["errno"].(float64) == 0
 }
 
 // SpeedUp the network
-func (x *API) SpeedUp() {
-	for true {
+func (x *API) SpeedUp() bool {
+	for count := 0; count < 3; count++ {
 		now := time.Now()
 		b, err := x.Request.Get(fmt.Sprintf(ApiUpgrade, x.PortalURL, x.Account.Session.PeerID, strconv.FormatInt(now.UnixMilli(), 10),
 			x.Account.Session.UserID, x.Account.Session.ID, x.DialAccount))
 		CheckError(err)
 		data := JsonToMap(b)
-		if data["errno"].(float64) == 0 {
+		errno := data["errno"].(float64)
+		if errno == 0 {
 			log.Println("Upgraded⭐")
-			break
+			return true
 		}
 		// sleep 2 min for prevent flood detection
 		log.Println("speedup failed, retry after 2min")
 		time.Sleep(2 * time.Minute)
+		count++
 	}
+	return false
 }
 
 // AutoSpeedUp automatic speedup the network, interval: 2h
 func (x *API) AutoSpeedUp() {
 	go func() {
 		for {
-			x.SpeedUp()
+			x.RetryLoginAndDo(2, x.SpeedUp, "upgrade")
 			time.Sleep(2 * time.Hour)
 		}
 	}()
+}
+
+func (x *API) RetryLoginAndDo(max int, action func() bool, msg string) bool {
+	var result bool
+	// up to 2 retry
+	for count := 0; count <= max; count++ {
+		result = action()
+		if result {
+			return true
+		} else {
+			x.LoginKey()
+		}
+	}
+	panic(msg + " failed")
 }
 
 // AutoKeepAlive automatic keep the speedup session, interval: 1h
@@ -262,7 +326,7 @@ func (x *API) AutoKeepAlive() {
 	go func() {
 		for {
 			time.Sleep(3 * time.Hour)
-			x.KeepAlive()
+			x.RetryLoginAndDo(2, x.KeepAlive, "keep upgraded")
 		}
 	}()
 }

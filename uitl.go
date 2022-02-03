@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"time"
 )
 
 func CheckError(err error) {
@@ -26,7 +28,7 @@ func GetStringSha1Hex(s string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func getMacAddr() (string, error) {
+func GetMacAddr() (string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "", err
@@ -54,4 +56,14 @@ func JsonToMap(b []byte) map[string]interface{} {
 	var infos map[string]interface{}
 	_ = json.Unmarshal(b, &infos)
 	return infos
+}
+
+func CheckInternet() bool {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://www.starx.ink/generate_204")
+	CheckError(err)
+	if resp.StatusCode == http.StatusNoContent {
+		return true
+	}
+	return false
 }
