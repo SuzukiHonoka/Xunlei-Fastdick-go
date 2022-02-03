@@ -1,0 +1,14 @@
+[Unit]
+Description=Xunlei FastDick
+After=network.target
+Wants=network.target
+
+[Service]
+WorkingDirectory=/path_to_program_dir
+ExecStart=/path_to_program_dir/Xunlei-Fastdick-go
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
