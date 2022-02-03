@@ -62,8 +62,5 @@ func CheckInternet() bool {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("https://www.starx.ink/generate_204")
 	CheckError(err)
-	if resp.StatusCode == http.StatusNoContent {
-		return true
-	}
-	return false
+	return resp.StatusCode == http.StatusNoContent
 }
