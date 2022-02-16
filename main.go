@@ -20,7 +20,7 @@ func main() {
 		<-signals
 		api.Recover()
 		fmt.Println("speedup stopped")
-		os.Exit(1)
+		os.Exit(0)
 	}()
 	// get portal first
 	api.GetPortal()
