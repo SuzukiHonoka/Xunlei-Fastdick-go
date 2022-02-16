@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,7 +19,7 @@ func main() {
 	go func() {
 		<-signals
 		api.Recover()
-		fmt.Println("speedup stopped")
+		log.Println("speedup stopped")
 		os.Exit(0)
 	}()
 	// get portal first
