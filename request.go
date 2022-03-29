@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
@@ -25,10 +26,17 @@ type Request struct {
 
 func NewRequest() *Request {
 	jar, _ := cookiejar.New(nil)
-	return &Request{Client: &http.Client{
-		Jar:     jar,
-		Timeout: 5 * time.Second,
-	}}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	var dialer net.Dialer
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "tcp4", addr)
+	}
+	client := &http.Client{
+		Jar:       jar,
+		Timeout:   5 * time.Second,
+		Transport: transport,
+	}
+	return &Request{Client: client}
 }
 
 func (x *Request) Post(url string, body []byte) ([]byte, error) {
