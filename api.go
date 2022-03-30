@@ -284,10 +284,17 @@ func (x *API) SpeedUp() bool {
 			x.Account.Session.UserID, x.Account.Session.ID, x.DialAccount))
 		CheckError(err)
 		data := JsonToMap(b)
-		errno := data["errno"].(float64)
-		if errno == 0 {
+		errno := int(data["errno"].(float64))
+		switch errno {
+		case 0:
 			log.Println("Upgraded⭐")
 			return true
+		case 711:
+			log.Println("client request too frequent, retry after 30 min")
+			time.Sleep(30 * time.Minute)
+			continue
+		default:
+			log.Printf("unknow error code: %d => %s\n", errno, data["message"].(string))
 		}
 		// sleep 2 min for prevent flood detection
 		log.Println("speedup failed, retry after 2min")
